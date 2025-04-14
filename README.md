@@ -12,6 +12,13 @@ A simple Windows tray app for toggling NVIDIA G-SYNC modes (Off / Fullscreen / F
 
 ---
 
+## Try it
+
+Download the latest pre-built `.zip` from the Releases page:  
+[https://github.com/horiaradu1/GSyncTrayToggle/releases](https://github.com/horiaradu1/GSyncTrayToggle/releases)
+
+---
+
 ## Project Structure
 
 ```
