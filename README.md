@@ -8,6 +8,7 @@ A simple Windows tray app for toggling NVIDIA G-SYNC modes (Off / Fullscreen / F
 
 - Adds a tray icon that shows your current G-SYNC mode.
 - Lets you change G-SYNC mode from the tray menu, with NVIDIA's NVAPI.
+- Icons are dynamically updated based on your current G-SYNC state.
 
 ---
 
@@ -37,4 +38,3 @@ A simple Windows tray app for toggling NVIDIA G-SYNC modes (Off / Fullscreen / F
 
 - `main.cpp` contains code for testing basic NVAPI functionality.
 - `settings.cpp` holds older experiments for inspecting raw settings — kept for reference.
-- Icons are dynamically updated based on your current G-SYNC state.
