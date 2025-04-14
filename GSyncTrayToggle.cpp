@@ -16,7 +16,6 @@ NOTIFYICONDATA nid = {};
 
 void UpdateTrayIcon(NvU32 mode) {
     int iconId = IDI_ICON_OFF;
-
     if (mode == 1) iconId = IDI_ICON_FULL;
     else if (mode == 2) iconId = IDI_ICON_FULLWINDOW;
 
@@ -28,9 +27,13 @@ void UpdateTrayIcon(NvU32 mode) {
         LR_DEFAULTCOLOR
     );
 
+    if (!hIcon) {
+        MessageBox(NULL, L"Failed to load tray icon", L"Error", MB_OK);
+        return;
+    }
+
     nid.hIcon = hIcon;
 
-    // Set tooltip text based on mode
     switch (mode) {
     case 0:
         wcscpy_s(nid.szTip, L"G-SYNC: Off");
@@ -46,15 +49,8 @@ void UpdateTrayIcon(NvU32 mode) {
         break;
     }
 
-    if (!hIcon) {
-        MessageBox(NULL, L"Failed to load tray icon", L"Error", MB_OK);
-    }
-
-    nid.hIcon = hIcon;
-    nid.uFlags |= NIF_ICON | NIF_TIP;
     Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
-
 
 void SetGSyncMode(NvU32 mode) {
     // mode: 0 = Off, 1 = Fullscreen only, 2 = Fullscreen + Windowed
@@ -145,11 +141,12 @@ void ShowContextMenu(HWND hwnd, NvU32 currentState) {
     GetCursorPos(&pt);
 
     HMENU hMenu = CreatePopupMenu();
-    AppendMenu(hMenu, MF_STRING | (currentState == 0 ? MF_CHECKED : 0), ID_GSYNC_OFF, L"G-SYNC Off");
-    AppendMenu(hMenu, MF_STRING | (currentState == 1 ? MF_CHECKED : 0), ID_GSYNC_FULLSCREEN, L"G-SYNC Fullscreen Only");
-    AppendMenu(hMenu, MF_STRING | (currentState == 2 ? MF_CHECKED : 0), ID_GSYNC_FULL_WINDOWED, L"G-SYNC Fullscreen + Windowed");
-    AppendMenu(hMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenu(hMenu, MF_STRING, ID_TRAY_EXIT, L"Exit");
+    AppendMenuW(hMenu, MF_STRING | (currentState == 0 ? MF_CHECKED : 0), (UINT_PTR)ID_GSYNC_OFF, L"G-SYNC Off");
+    AppendMenuW(hMenu, MF_STRING | (currentState == 1 ? MF_CHECKED : 0), (UINT_PTR)ID_GSYNC_FULLSCREEN, L"G-SYNC Fullscreen Only");
+    AppendMenuW(hMenu, MF_STRING | (currentState == 2 ? MF_CHECKED : 0), (UINT_PTR)ID_GSYNC_FULL_WINDOWED, L"G-SYNC Fullscreen + Windowed");
+    AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(hMenu, MF_STRING, (UINT_PTR)ID_TRAY_EXIT, L"Exit");
+
 
     SetForegroundWindow(hwnd);
     TrackPopupMenu(hMenu, TPM_BOTTOMALIGN | TPM_LEFTALIGN, pt.x, pt.y, 0, hwnd, NULL);
@@ -194,7 +191,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             DestroyWindow(hwnd);
             break;
         }
-        break;
+        return 0;
     }
 
     case WM_DESTROY:
@@ -237,7 +234,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     nid.uID = ID_TRAYICON;
     nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     nid.uCallbackMessage = WM_TRAYICON;
-    nid.hIcon = LoadIcon(nullptr, IDI_INFORMATION);
+    nid.hIcon = (HICON)LoadImage(g_hInst, MAKEINTRESOURCE(IDI_ICON_OFF), IMAGE_ICON, 16, 16, 0);
     wcscpy_s(nid.szTip, L"G-SYNC Toggle");
     Shell_NotifyIcon(NIM_ADD, &nid);
     SetGSyncMode(GetCurrentMode());

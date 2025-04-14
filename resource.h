@@ -2,8 +2,9 @@
 // Microsoft Visual C++ generated include file.
 // Used by GSyncToggle.rc
 //
-#define IDI_ICON_FULL                   101
-#define IDI_ICON_FULLWINDOW             102
+#define IDI_APP_ICON					100
+#define IDI_ICON_FULLWINDOW             101
+#define IDI_ICON_FULL                   102
 #define IDI_ICON_OFF                    103
 
 // Next default values for new objects
