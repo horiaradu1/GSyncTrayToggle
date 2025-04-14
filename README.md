@@ -26,10 +26,10 @@ A simple Windows tray app for toggling NVIDIA G-SYNC modes (Off / Fullscreen / F
 
 ## References
 
-- [🔗 NVAPI Get Started Guide (NVIDIA)](https://developer.nvidia.com/rtx/path-tracing/nvapi/get-started)
-- [🔗 NVAPI GitHub (NVIDIA)](https://github.com/NVIDIA/nvapi)
-- [🔗 NVAPI Official Docs](https://docs.nvidia.com/gameworks/content/gameworkslibrary/coresdk/nvapi/)
-- [🔗 StackOverflow – Accessing Global Profile Settings](https://stackoverflow.com/questions/43526033/problems-retrieving-the-global-profile-settings-shown-in-the-nvidia-control-pan)
+- [NVAPI](https://developer.nvidia.com/rtx/path-tracing/nvapi/get-started)
+- [NVAPI GitHub (NVIDIA)](https://github.com/NVIDIA/nvapi)
+- [NVAPI Docs](https://docs.nvidia.com/gameworks/content/gameworkslibrary/coresdk/nvapi/)
+- [StackOverflow – NVIDIA Global Profile inspiration](https://stackoverflow.com/questions/43526033/problems-retrieving-the-global-profile-settings-shown-in-the-nvidia-control-pan)
 
 ---
 
