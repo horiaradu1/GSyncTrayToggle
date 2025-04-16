@@ -1,12 +1,31 @@
-# run-at-startup.ps1
+param (
+    [Parameter(Mandatory = $true)]
+    [string]$exePath
+)
 
-$AppName = "GSyncTrayToggle"
-$ExePath = "$PSScriptRoot\GSyncTrayToggle.exe"
+if (-not (Test-Path $exePath)) {
+    Write-Error "Executable not found at path: $exePath"
+    exit 1
+}
 
-$ExePathQuoted = '"' + $ExePath + '"'
+# Get the user's Startup folder
+$startupFolder = [Environment]::GetFolderPath("Startup")
 
-Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" `
-                 -Name $AppName `
-                 -Value $ExePathQuoted
+# Define the shortcut path
+$shortcutName = [System.IO.Path]::GetFileNameWithoutExtension($exePath) + ".lnk"
+$shortcutPath = Join-Path $startupFolder $shortcutName
 
-Write-Host "$AppName added to startup."
+# Create a WScript.Shell COM object
+$wshShell = New-Object -ComObject WScript.Shell
+
+# Create the shortcut
+$shortcut = $wshShell.CreateShortcut($shortcutPath)
+$shortcut.TargetPath = $exePath
+$shortcut.WorkingDirectory = Split-Path $exePath
+$shortcut.WindowStyle = 1
+$shortcut.Save()
+
+Write-Host "Shortcut created in Startup folder: $shortcutPath"
+
+# Example .\Add-ToStartup.ps1 -exePath "C:\Path\To\GSyncTrayToggle.exe"
+
