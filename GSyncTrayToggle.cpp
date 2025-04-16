@@ -236,6 +236,14 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     nid.uCallbackMessage = WM_TRAYICON;
     nid.hIcon = (HICON)LoadImage(g_hInst, MAKEINTRESOURCE(IDI_ICON_OFF), IMAGE_ICON, 16, 16, 0);
     wcscpy_s(nid.szTip, L"G-SYNC Toggle");
+
+    // Wait for taskbar to be ready
+    HWND hShellTrayWnd = NULL;
+    for (int i = 0; i < 10 && hShellTrayWnd == NULL; ++i) {
+        hShellTrayWnd = FindWindow(L"Shell_TrayWnd", NULL);
+        if (hShellTrayWnd == NULL) Sleep(500); // wait 500ms
+    }
+
     Shell_NotifyIcon(NIM_ADD, &nid);
     SetGSyncMode(GetCurrentMode());
 
