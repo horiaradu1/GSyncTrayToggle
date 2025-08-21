@@ -10,12 +10,38 @@
 #define ID_GSYNC_OFF 2002
 #define ID_GSYNC_FULLSCREEN 2003
 #define ID_GSYNC_FULL_WINDOWED 2004
+#define TIMER_ID_STATUS      2005
+#define TIMER_INTERVAL_MS    5000
+
+static NvU32 lastMode = 0xFFFFFFFF;
+static UINT_PTR timerId = 0;
+
+static HICON iconOff = nullptr, iconFull = nullptr, iconFullWin = nullptr;
+static int   lastIconId = -1;
+
+static bool nvapiInited = false;
+
 
 HINSTANCE g_hInst;
 NOTIFYICONDATA nid = {};
 
+void LoadTrayIcons() {
+    iconOff = (HICON)LoadImage(g_hInst, MAKEINTRESOURCE(IDI_ICON_OFF), IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR | LR_SHARED);
+    iconFull = (HICON)LoadImage(g_hInst, MAKEINTRESOURCE(IDI_ICON_FULL), IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR | LR_SHARED);
+    iconFullWin = (HICON)LoadImage(g_hInst, MAKEINTRESOURCE(IDI_ICON_FULLWINDOW), IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR | LR_SHARED);
+}
+
+HICON PickIcon(NvU32 mode) {
+    switch (mode) {
+    case 1:  return iconFull;
+    case 2:  return iconFullWin;
+    default: return iconOff;
+    }
+}
+
+
 void UpdateTrayIcon(NvU32 mode) {
-    int iconId = IDI_ICON_OFF;
+    /*int iconId = IDI_ICON_OFF;
     if (mode == 1) iconId = IDI_ICON_FULL;
     else if (mode == 2) iconId = IDI_ICON_FULLWINDOW;
 
@@ -32,7 +58,18 @@ void UpdateTrayIcon(NvU32 mode) {
         return;
     }
 
-    nid.hIcon = hIcon;
+    nid.hIcon = hIcon;*/
+
+    int iconId = (mode == 1) ? 1 : (mode == 2) ? 2 : 0;
+    if (iconId != lastIconId) {
+        nid.hIcon = PickIcon(mode);
+        lastIconId = iconId;
+        nid.uFlags = NIF_ICON | NIF_TIP;
+    }
+    else {
+        nid.uFlags = NIF_TIP;
+    }
+
 
     switch (mode) {
     case 0:
@@ -55,7 +92,7 @@ void UpdateTrayIcon(NvU32 mode) {
 void SetGSyncMode(NvU32 mode) {
     // mode: 0 = Off, 1 = Fullscreen only, 2 = Fullscreen + Windowed
 
-    NvAPI_Initialize();
+    if (!nvapiInited) return;
     NvDRSSessionHandle hSession = nullptr;
 
     if (NvAPI_DRS_CreateSession(&hSession) == NVAPI_OK) {
@@ -101,8 +138,6 @@ void SetGSyncMode(NvU32 mode) {
         NvAPI_DRS_DestroySession(hSession);
     }
 
-    NvAPI_Unload();
-
     UpdateTrayIcon(mode);
 }
 
@@ -118,9 +153,8 @@ NvU32 GetCurrentGsyncMode(NvDRSSessionHandle hSession, NvDRSProfileHandle hProfi
 }
 
 NvU32 GetCurrentMode() {
+    if (!nvapiInited) return 0;
     NvU32 mode = 0;
-
-    NvAPI_Initialize();
     NvDRSSessionHandle hSession = nullptr;
 
     if (NvAPI_DRS_CreateSession(&hSession) == NVAPI_OK) {
@@ -132,7 +166,6 @@ NvU32 GetCurrentMode() {
         NvAPI_DRS_DestroySession(hSession);
     }
 
-    NvAPI_Unload();
     return mode;
 }
 
@@ -155,11 +188,26 @@ void ShowContextMenu(HWND hwnd, NvU32 currentState) {
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
+    case WM_TIMER:
+        if (wParam == timerId) {
+            NvU32 mode = GetCurrentMode();
+            if (mode != lastMode) {
+                lastMode = mode;
+                UpdateTrayIcon(mode);
+            }
+            return 0;
+        }
+        break;
+
     case WM_TRAYICON:
         switch (LOWORD(lParam)) {
         case WM_LBUTTONUP:
         case WM_RBUTTONUP: {
-            NvAPI_Initialize();
+            NvU32 mode = GetCurrentMode();
+            if (mode != lastMode) {
+                lastMode = mode;
+                UpdateTrayIcon(mode);
+            }
             NvDRSSessionHandle hSession = nullptr;
             if (NvAPI_DRS_CreateSession(&hSession) == NVAPI_OK) {
                 NvAPI_DRS_LoadSettings(hSession);
@@ -170,7 +218,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 }
                 NvAPI_DRS_DestroySession(hSession);
             }
-            NvAPI_Unload();
             break;
         }
         }
@@ -178,23 +225,31 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
     case WM_COMMAND: {
         switch (LOWORD(wParam)) {
-        case ID_GSYNC_OFF:
-            SetGSyncMode(0);
-            break;
-        case ID_GSYNC_FULLSCREEN:
-            SetGSyncMode(1);
-            break;
-        case ID_GSYNC_FULL_WINDOWED:
-            SetGSyncMode(2);
-            break;
-        case ID_TRAY_EXIT:
-            DestroyWindow(hwnd);
-            break;
+            case ID_GSYNC_OFF:
+                SetGSyncMode(0);
+                break;
+            case ID_GSYNC_FULLSCREEN:
+                SetGSyncMode(1);
+                break;
+            case ID_GSYNC_FULL_WINDOWED:
+                SetGSyncMode(2);
+                break;
+            case ID_TRAY_EXIT:
+                DestroyWindow(hwnd);
+                break;
         }
         return 0;
-    }
+        }
 
     case WM_DESTROY:
+        if (timerId) {
+            KillTimer(hwnd, timerId);
+            timerId = 0;
+        }
+        if (nvapiInited) {
+            NvAPI_Unload();
+            nvapiInited = false;
+        }
         Shell_NotifyIcon(NIM_DELETE, &nid);
         PostQuitMessage(0);
         return 0;
@@ -234,7 +289,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     nid.uID = ID_TRAYICON;
     nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     nid.uCallbackMessage = WM_TRAYICON;
-    nid.hIcon = (HICON)LoadImage(g_hInst, MAKEINTRESOURCE(IDI_ICON_OFF), IMAGE_ICON, 16, 16, 0);
+    //nid.hIcon = (HICON)LoadImage(g_hInst, MAKEINTRESOURCE(IDI_ICON_OFF), IMAGE_ICON, 16, 16, 0);
     wcscpy_s(nid.szTip, L"G-SYNC Toggle");
 
     // Wait for taskbar to be ready
@@ -244,8 +299,35 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         if (hShellTrayWnd == NULL) Sleep(500); // wait 500ms
     }
 
+    LoadTrayIcons();
+    if (!iconOff || !iconFull || !iconFullWin) {
+        MessageBoxW(hwnd, L"Failed to load tray icons", L"GSyncTrayToggle", MB_OK | MB_ICONERROR);
+    }
+    nid.hIcon = PickIcon(lastMode);
     Shell_NotifyIcon(NIM_ADD, &nid);
-    SetGSyncMode(GetCurrentMode());
+
+    nid.uVersion = NOTIFYICON_VERSION_4;
+    Shell_NotifyIcon(NIM_SETVERSION, &nid);
+
+    if (NvAPI_Initialize() == NVAPI_OK) {
+        nvapiInited = true;
+    }
+    else {
+        MessageBoxW(hwnd, L"NvAPI_Initialize failed", L"GSyncTrayToggle", MB_OK | MB_ICONERROR);
+    }
+
+    lastMode = GetCurrentMode();
+    UpdateTrayIcon(lastMode);
+    SetGSyncMode(lastMode);
+
+	// Set time to get G-SYNC status every 5 seconds, in case of update from elseware
+    timerId = SetTimer(hwnd, TIMER_ID_STATUS, TIMER_INTERVAL_MS, NULL);
+    if (timerId == 0) {
+        DWORD err = GetLastError();
+        wchar_t buf[128];
+        swprintf_s(buf, L"Timer failed: %lu", err);
+        MessageBoxW(hwnd, buf, L"GSyncTrayToggle", MB_OK | MB_ICONERROR);
+    }
 
     MSG msg;
     while (GetMessage(&msg, nullptr, 0, 0)) {
