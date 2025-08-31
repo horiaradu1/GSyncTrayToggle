@@ -3,6 +3,10 @@
 #include <shellapi.h>
 #include <nvapi.h>
 #include "resource.h"
+#include <dbt.h>
+#include <powrprof.h>
+
+#pragma comment(lib, "PowrProf.lib")
 
 #define WM_TRAYICON (WM_USER + 1)
 #define ID_TRAYICON 1001
@@ -10,20 +14,20 @@
 #define ID_GSYNC_OFF 2002
 #define ID_GSYNC_FULLSCREEN 2003
 #define ID_GSYNC_FULL_WINDOWED 2004
-#define TIMER_ID_STATUS      2005
-#define TIMER_INTERVAL_MS    5000
 
 static NvU32 lastMode = 0xFFFFFFFF;
-static UINT_PTR timerId = 0;
 
 static HICON iconOff = nullptr, iconFull = nullptr, iconFullWin = nullptr;
 static int   lastIconId = -1;
 
 static bool nvapiInited = false;
 
-
 HINSTANCE g_hInst;
 NOTIFYICONDATA nid = {};
+
+static const UINT  REFRESH_DEBOUNCE_MS = 400;
+static UINT_PTR refreshTimerId = 0;
+static HPOWERNOTIFY powerNotify = nullptr;
 
 void LoadTrayIcons() {
     iconOff = (HICON)LoadImage(g_hInst, MAKEINTRESOURCE(IDI_ICON_OFF), IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR | LR_SHARED);
@@ -38,7 +42,6 @@ HICON PickIcon(NvU32 mode) {
     default: return iconOff;
     }
 }
-
 
 void UpdateTrayIcon(NvU32 mode) {
     /*int iconId = IDI_ICON_OFF;
@@ -87,6 +90,74 @@ void UpdateTrayIcon(NvU32 mode) {
     }
 
     Shell_NotifyIcon(NIM_MODIFY, &nid);
+}
+
+NvU32 GetCurrentGsyncMode(NvDRSSessionHandle hSession, NvDRSProfileHandle hProfile) {
+    NVDRS_SETTING current = {};
+    current.version = NVDRS_SETTING_VER;
+
+    if (NvAPI_DRS_GetSetting(hSession, hProfile, 294973784, &current) == NVAPI_OK) {
+        return current.u32CurrentValue; // 0 = Off, 1 = FS only, 2 = FS+Win
+    }
+
+    return 0;
+}
+
+NvU32 GetCurrentMode() {
+    if (!nvapiInited) return 0;
+    NvU32 mode = 0;
+    NvDRSSessionHandle hSession = nullptr;
+
+    if (NvAPI_DRS_CreateSession(&hSession) == NVAPI_OK) {
+        NvAPI_DRS_LoadSettings(hSession);
+        NvDRSProfileHandle hProfile;
+        if (NvAPI_DRS_GetCurrentGlobalProfile(hSession, &hProfile) == NVAPI_OK) {
+            mode = GetCurrentGsyncMode(hSession, hProfile);
+        }
+        NvAPI_DRS_DestroySession(hSession);
+    }
+
+    return mode;
+}
+
+void RefreshGSyncStateAndTray() {
+    if (nvapiInited) {
+        NvAPI_Unload();
+        nvapiInited = false;
+    }
+    if (NvAPI_Initialize() == NVAPI_OK) {
+        nvapiInited = true;
+    }
+    else {
+        wcscpy_s(nid.szTip, L"G-SYNC: Driver unavailable");
+        nid.hIcon = iconOff;
+        nid.uFlags = NIF_ICON | NIF_TIP;
+        Shell_NotifyIcon(NIM_MODIFY, &nid);
+        return;
+
+    }
+
+    NvU32 mode = GetCurrentMode();
+    if (mode != lastMode) {
+        lastMode = mode;
+        UpdateTrayIcon(mode);
+    }
+    else {
+        UpdateTrayIcon(mode);
+    }
+}
+
+void StartRefreshTimer(HWND hwnd) {
+    if (refreshTimerId) KillTimer(hwnd, refreshTimerId);
+    refreshTimerId = SetTimer(hwnd, 0xBEEF /* arbitrary */, REFRESH_DEBOUNCE_MS, nullptr);
+}
+
+void DoRefresh(HWND hwnd) {
+    if (refreshTimerId) {
+        KillTimer(hwnd, refreshTimerId);
+        refreshTimerId = 0;
+    }
+    RefreshGSyncStateAndTray();
 }
 
 void SetGSyncMode(NvU32 mode) {
@@ -141,34 +212,6 @@ void SetGSyncMode(NvU32 mode) {
     UpdateTrayIcon(mode);
 }
 
-NvU32 GetCurrentGsyncMode(NvDRSSessionHandle hSession, NvDRSProfileHandle hProfile) {
-    NVDRS_SETTING current = {};
-    current.version = NVDRS_SETTING_VER;
-
-    if (NvAPI_DRS_GetSetting(hSession, hProfile, 294973784, &current) == NVAPI_OK) {
-        return current.u32CurrentValue; // 0 = Off, 1 = FS only, 2 = FS+Win
-    }
-
-    return 0;
-}
-
-NvU32 GetCurrentMode() {
-    if (!nvapiInited) return 0;
-    NvU32 mode = 0;
-    NvDRSSessionHandle hSession = nullptr;
-
-    if (NvAPI_DRS_CreateSession(&hSession) == NVAPI_OK) {
-        NvAPI_DRS_LoadSettings(hSession);
-        NvDRSProfileHandle hProfile;
-        if (NvAPI_DRS_GetCurrentGlobalProfile(hSession, &hProfile) == NVAPI_OK) {
-            mode = GetCurrentGsyncMode(hSession, hProfile);
-        }
-        NvAPI_DRS_DestroySession(hSession);
-    }
-
-    return mode;
-}
-
 void ShowContextMenu(HWND hwnd, NvU32 currentState) {
     POINT pt;
     GetCursorPos(&pt);
@@ -188,16 +231,40 @@ void ShowContextMenu(HWND hwnd, NvU32 currentState) {
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
+ 
     case WM_TIMER:
-        if (wParam == timerId) {
-            NvU32 mode = GetCurrentMode();
-            if (mode != lastMode) {
-                lastMode = mode;
-                UpdateTrayIcon(mode);
-            }
+        if (wParam == refreshTimerId) {
+            DoRefresh(hwnd);
             return 0;
         }
         break;
+
+    case WM_DISPLAYCHANGE:            // resolution/refresh rate changes
+        StartRefreshTimer(hwnd);
+        return 0;
+
+    case WM_DEVICECHANGE:             // monitor plug and unplug changes
+        if (wParam == DBT_DEVNODES_CHANGED) {
+            StartRefreshTimer(hwnd);
+            return 0;
+        }
+        break;
+
+    case WM_SETTINGCHANGE:            // settings display changes
+        StartRefreshTimer(hwnd);
+        return 0;
+
+    case WM_DPICHANGED:               // monitor DPI changes
+        StartRefreshTimer(hwnd);
+        return 0;
+
+    case WM_POWERBROADCAST:           // display sleep/wake notifications
+        if (wParam == PBT_POWERSETTINGCHANGE) {
+            StartRefreshTimer(hwnd);
+            return TRUE;
+        }
+        break;
+
 
     case WM_TRAYICON:
         switch (LOWORD(lParam)) {
@@ -242,10 +309,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
     case WM_DESTROY:
-        if (timerId) {
-            KillTimer(hwnd, timerId);
-            timerId = 0;
+        if (refreshTimerId) {
+            KillTimer(hwnd, refreshTimerId); refreshTimerId = 0;
         }
+
+        if (powerNotify) {
+            UnregisterPowerSettingNotification(powerNotify); powerNotify = nullptr;
+        }
+
         if (nvapiInited) {
             NvAPI_Unload();
             nvapiInited = false;
@@ -296,7 +367,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     HWND hShellTrayWnd = NULL;
     for (int i = 0; i < 10 && hShellTrayWnd == NULL; ++i) {
         hShellTrayWnd = FindWindow(L"Shell_TrayWnd", NULL);
-        if (hShellTrayWnd == NULL) Sleep(500); // wait 500ms
+        if (hShellTrayWnd == NULL) Sleep(500);
     }
 
     LoadTrayIcons();
@@ -320,14 +391,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     UpdateTrayIcon(lastMode);
     SetGSyncMode(lastMode);
 
-	// Set time to get G-SYNC status every 5 seconds, in case of update from elseware
-    timerId = SetTimer(hwnd, TIMER_ID_STATUS, TIMER_INTERVAL_MS, NULL);
-    if (timerId == 0) {
-        DWORD err = GetLastError();
-        wchar_t buf[128];
-        swprintf_s(buf, L"Timer failed: %lu", err);
-        MessageBoxW(hwnd, buf, L"GSyncTrayToggle", MB_OK | MB_ICONERROR);
-    }
+    powerNotify = RegisterPowerSettingNotification(
+        hwnd, &GUID_CONSOLE_DISPLAY_STATE, DEVICE_NOTIFY_WINDOW_HANDLE);
+    RefreshGSyncStateAndTray();
 
     MSG msg;
     while (GetMessage(&msg, nullptr, 0, 0)) {
