@@ -27,5 +27,5 @@ $shortcut.Save()
 
 Write-Host "Shortcut created in Startup folder: $shortcutPath"
 
-# Example .\Add-ToStartup.ps1 -exePath "C:\Path\To\GSyncTrayToggle.exe"
+# Example .\run-at-startup.ps1 -exePath "C:\Path\To\GSyncTrayToggle.exe"
 
